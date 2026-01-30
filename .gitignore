@@ -6,7 +6,7 @@ __pycache__/
 # Virtual environments
 venv/
 ENV/
-env/
+# env/
 .venv
 
 # IDE
