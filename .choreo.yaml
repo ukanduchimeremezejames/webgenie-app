@@ -1,0 +1,253 @@
+# Choreo Deployment Configuration
+# This file defines how the WebGenie Backend should be deployed on Choreo.dev
+
+apiVersion: v1
+kind: Application
+metadata:
+  name: webgenie-backend
+  displayName: WebGenie Backend
+  description: Production-ready FastAPI backend for Beeline GRN inference
+  owner: WebGenie Team
+  version: 1.0.0
+
+spec:
+  # API Service Component
+  components:
+    - name: api-service
+      type: service
+      displayName: WebGenie API Service
+      description: FastAPI application serving GRN inference APIs
+      
+      # Build configuration
+      buildConfig:
+        type: dockerfile
+        dockerfile: Dockerfile
+        context: .
+      
+      # Runtime configuration
+      runtime:
+        language: python
+        version: "3.11"
+      
+      # Port configuration
+      ports:
+        - port: 8000
+          name: http
+          protocol: HTTP
+          exposedAsPublic: true
+      
+      # Environment variables
+      environmentVariables:
+        - name: ENVIRONMENT
+          value: production
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: PYTHONDONTWRITEBYTECODE
+          value: "1"
+        - name: LOG_LEVEL
+          value: INFO
+        - name: REDIS_HOST
+          value: redis
+        - name: REDIS_PORT
+          value: "6379"
+        - name: DATABASE_PATH
+          value: /app/data
+        - name: CORS_ORIGINS
+          value: "http://localhost:3000,http://localhost:5173,https://yourdomain.com"
+        - name: MAX_CONCURRENT_JOBS
+          value: "4"
+        - name: JOB_TIMEOUT_SECONDS
+          value: "3600"
+        - name: BEELINE_TIMEOUT
+          value: "1800"
+        - name: SUPPORTED_ALGORITHMS
+          value: "grn_boost2,scenic,pidc,clr,aracne,nes,inferelator,pyscenic"
+      
+      # Health check configuration
+      healthCheck:
+        type: http
+        path: /health
+        port: 8000
+        initialDelaySeconds: 10
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+      
+      # Resource requirements
+      resources:
+        requests:
+          memory: 512Mi
+          cpu: 250m
+        limits:
+          memory: 2Gi
+          cpu: 1000m
+      
+      # Persistent volumes
+      volumes:
+        - name: data-volume
+          mountPath: /app/data
+          size: 10Gi
+        - name: logs-volume
+          mountPath: /app/logs
+          size: 5Gi
+      
+      # Replicas and scaling
+      replicas:
+        min: 1
+        max: 3
+      
+      # Startup configuration
+      startupProbe:
+        type: http
+        path: /health
+        port: 8000
+        initialDelaySeconds: 20
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 5
+    
+    # Celery Worker Component
+    - name: celery-worker
+      type: backgroundWorker
+      displayName: WebGenie Celery Worker
+      description: Background worker for asynchronous GRN inference jobs
+      
+      # Build configuration
+      buildConfig:
+        type: dockerfile
+        dockerfile: Dockerfile
+        context: .
+      
+      # Runtime configuration
+      runtime:
+        language: python
+        version: "3.11"
+      
+      # Custom startup command for Celery
+      startupCommand: "celery -A app.workers.celery_app worker --loglevel=info --concurrency=2"
+      
+      # Environment variables (same as API service)
+      environmentVariables:
+        - name: ENVIRONMENT
+          value: production
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: PYTHONDONTWRITEBYTECODE
+          value: "1"
+        - name: LOG_LEVEL
+          value: INFO
+        - name: REDIS_HOST
+          value: redis
+        - name: REDIS_PORT
+          value: "6379"
+        - name: DATABASE_PATH
+          value: /app/data
+        - name: MAX_CONCURRENT_JOBS
+          value: "4"
+        - name: JOB_TIMEOUT_SECONDS
+          value: "3600"
+        - name: BEELINE_TIMEOUT
+          value: "1800"
+      
+      # Resource requirements for worker
+      resources:
+        requests:
+          memory: 1Gi
+          cpu: 500m
+        limits:
+          memory: 2Gi
+          cpu: 1000m
+      
+      # Persistent volumes
+      volumes:
+        - name: data-volume
+          mountPath: /app/data
+          size: 10Gi
+      
+      # Worker replicas
+      replicas:
+        min: 1
+        max: 2
+
+  # Service Dependencies
+  dependencies:
+    - name: redis
+      type: addon
+      service: redis
+      version: "7.x"
+      config:
+        port: 6379
+        memory: 512Mi
+
+  # Ingress configuration
+  ingress:
+    enabled: true
+    tls: true
+    hostname: webgenie-api.choreo.dev
+    routes:
+      - path: /api
+        service: api-service
+        port: 8000
+      - path: /health
+        service: api-service
+        port: 8000
+      - path: /
+        service: api-service
+        port: 8000
+
+  # Deployment strategy
+  deploymentStrategy:
+    type: rolling
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    canary:
+      enabled: false
+
+  # Observability
+  observability:
+    logging:
+      enabled: true
+      format: json
+      level: INFO
+    metrics:
+      enabled: true
+      scrapeInterval: 30s
+    tracing:
+      enabled: false
+
+  # Secrets (to be configured in Choreo console)
+  secrets:
+    - name: REDIS_PASSWORD
+      mountPath: /etc/secrets/redis_password
+      optional: true
+
+# Build hooks (optional)
+hooks:
+  preBuild:
+    - echo "Running pre-build checks..."
+  postBuild:
+    - echo "Build completed successfully"
+
+# Deployment notifications
+notifications:
+  slack:
+    enabled: false
+    webhook: ${SLACK_WEBHOOK_URL}
+  email:
+    enabled: false
+    recipients:
+      - devops@yourdomain.com
+
+# Additional metadata
+metadata:
+  tags:
+    - fastapi
+    - grn-inference
+    - beeline
+    - celery
+    - redis
+  labels:
+    team: webgenie
+    environment: production
+    version: "1.0"
