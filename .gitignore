@@ -6,7 +6,7 @@ __pycache__/
 # Virtual environments
 venv/
 ENV/
-# env/
+env/
 .venv
 
 # IDE
@@ -36,7 +36,7 @@ results/
 datasets/
 
 # Environment
-.env
+# .env
 .env.local
 .env.*.local
 
